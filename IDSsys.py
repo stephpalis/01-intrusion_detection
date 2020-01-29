@@ -12,6 +12,8 @@ blacklist = {}
 
 # Ensure that it doesn't violate the NSTPv2 specification
 def spec(msg):
+    global openConnections
+    global IPtoConnections
     print("TESTING SPEC")
     e = msg.event
     connection = (e.address_family, e.server_address, e.server_port, e.remote_address, e.remote_port)
@@ -108,38 +110,26 @@ def terminate_connection_tuple(pairs, s):
 
 
 def maxSingleIPConnections(msg, s):
+    global openConnections
+    global IPtoConnections
     ip = msg.event.server_address
-    if ip in IPtoConnections and IPtoConnections[ip] > 50:
+    if ip in IPtoConnections and IPtoConnections[ip] > 100:
         blacklist[ip] = 0
         for i in openConnections.keys():
             if i[1] == ip:
+                del openConnections[i]
                 terminate_connection_tuple(i, s)
 
 #NSTP-SEC-2020-0003
-# TODO track connections from IP addresses - limit to 50 -- blacklist
 def maxConcurrency(msg):
+    global openConnections
     # TODO too nieve? should be counting open connections?
-    if len(openConnections) > 500:
+    print("OPEN CONNECTIONS", openConnections)
+    if len(openConnections.keys()) > 500:
+        print("TOO MANY OPEN CONNECTIONS")
         return False
     else:
         return True
-
-def terminate_connection(msg):
-    response = nstp_v2_pb2.IDSMessage()
-    terminate = nstp_v2_pb2.IDSTerminateConnection()
-    terminate.address_family = msg.event.address_family
-    terminate.server_address = msg.event.server_address
-    terminate.server_port = msg.event.server_port
-    terminate.remote_address = msg.event.remote_address
-    terminate.remote_port = msg.event.remote_port
-
-    response.terminate_connection.address_family = terminate.address_family
-    response.terminate_connection.server_address = terminate.server_address
-    response.terminate_connection.server_port = terminate.server_port
-    response.terminate_connection.remote_address = terminate.remote_address
-    response.terminate_connection.remote_port = terminate.remote_port
-    print("TERMINATE CONNECTION: ", response)
-    return response
 
 def main():
     print(sockFile)
@@ -200,9 +190,9 @@ def main():
 
             # Check if at Sec3 --> Terminate connection
             if not maxConcurrency(read):
-                response = terminate_connection(read)
+                response.decision.allow = False
 
-            if "connection_established" in str(read.event):
+            if "client_hello" in str(read.event):
                 maxSingleIPConnections(read, s)
 
             # Send Message back prefixed with length 
