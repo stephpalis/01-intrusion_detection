@@ -148,67 +148,72 @@ def main():
     s.settimeout(10)
 
     while True:
-        print("READING")
-        # Recieve Message
-        msg = s.recv(2048)
-        if len(msg) == 0:
-            s.close()
-            return 0
-        length = struct.unpack("!H", msg[0:2])[0]
-        msg = msg[2:]
-        read = nstp_v2_pb2.IDSMessage()
-        read.ParseFromString(msg)
-        print ("MSG: ", read)
+        try:
+            print("READING")
+            # Recieve Message
+            msg = s.recv(2048)
+            if len(msg) == 0:
+                s.close()
+                return 0
+            length = struct.unpack("!H", msg[0:2])[0]
+            msg = msg[2:]
+            read = nstp_v2_pb2.IDSMessage()
+            read.ParseFromString(msg)
+            print ("MSG: ", read)
 
 
-        # TODO: DELETE: TESTING ONLY:
-        '''storeReq = nstp_v2_pb2.StoreRequest()
-        storeReq.key = "hqrogvwirdboqtqansgipuncxjbmbkftocsikkoyhzktucwpgzocgrgleydnstaggkqixzcnjwqrquwltucllhkrozebxrcwlaftghxdzwqsnqbumcappxnyjljpjeoyoivzbjxmaeyxjnatritowwinusoxtktkdrlypyavwltnijkourjaustmwxmwrvzuhfxvemxoxkrmygbvclltodejlbfiksssfftiwvhagwkyuubvuoxvpzgwbmrkjelkosdzzmrxfrrdmhyooeqjgzicjlxjqdvtxzgbkwjwwppylsclhcmrnyxqzlwocsloedbfeqyaobsityxgeopxgghcrozieopogkbiijykqzgavcgxrrefezmfvgmogsqsqxqfqtaqfqhyhtfixjrlekexhtynztextgdfufkbsggxjubtcoivscjdlnixutcwwkzlxcpdddjzyucpiqgtycppkrgtsfixhunzwnapvlvhmtldmigmatskneouvcauv"
-        storeReq.value = b'1010'
-        oldMsg = read
-        read = nstp_v2_pb2.IDSMessage()
-        read.event.event_id = oldMsg.event.event_id
-        read.event.timestamp = oldMsg.event.event_id
-        read.event.address_family = oldMsg.event.event_id
-        read.event.server_address = oldMsg.event.server_address
-        read.event.server_port = oldMsg.event.server_port
-        read.event.remote_address = oldMsg.event.remote_address
-        read.event.remote_port = oldMsg.event.remote_port
+            # TODO: DELETE: TESTING ONLY:
+            '''storeReq = nstp_v2_pb2.StoreRequest()
+            storeReq.key = "hqrogvwirdboqtqansgipuncxjbmbkftocsikkoyhzktucwpgzocgrgleydnstaggkqixzcnjwqrquwltucllhkrozebxrcwlaftghxdzwqsnqbumcappxnyjljpjeoyoivzbjxmaeyxjnatritowwinusoxtktkdrlypyavwltnijkourjaustmwxmwrvzuhfxvemxoxkrmygbvclltodejlbfiksssfftiwvhagwkyuubvuoxvpzgwbmrkjelkosdzzmrxfrrdmhyooeqjgzicjlxjqdvtxzgbkwjwwppylsclhcmrnyxqzlwocsloedbfeqyaobsityxgeopxgghcrozieopogkbiijykqzgavcgxrrefezmfvgmogsqsqxqfqtaqfqhyhtfixjrlekexhtynztextgdfufkbsggxjubtcoivscjdlnixutcwwkzlxcpdddjzyucpiqgtycppkrgtsfixhunzwnapvlvhmtldmigmatskneouvcauv"
+            storeReq.value = b'1010'
+            oldMsg = read
+            read = nstp_v2_pb2.IDSMessage()
+            read.event.event_id = oldMsg.event.event_id
+            read.event.timestamp = oldMsg.event.event_id
+            read.event.address_family = oldMsg.event.event_id
+            read.event.server_address = oldMsg.event.server_address
+            read.event.server_port = oldMsg.event.server_port
+            read.event.remote_address = oldMsg.event.remote_address
+            read.event.remote_port = oldMsg.event.remote_port
 
-        # Buffer Overflow
-        #read.event.store_request.key = storeReq.key
-        #read.event.store_request.value = storeReq.value
+            # Buffer Overflow
+            #read.event.store_request.key = storeReq.key
+            #read.event.store_request.value = storeReq.value
 
-        #Unsantized Key
-        read.event.store_request.key = "tmp/../file/.."
-        read.event.store_request.value = storeReq.value
+            #Unsantized Key
+            read.event.store_request.key = "tmp/../file/.."
+            read.event.store_request.value = storeReq.value
 
-        print(read)'''
-        ## DELETE BEFORE HERE
+            print(read)'''
+            ## DELETE BEFORE HERE
 
 
-        # Formulate Response
-        response = nstp_v2_pb2.IDSMessage()
-        dec = nstp_v2_pb2.IDSDecision()
-        dec.event_id = read.event.event_id
+            # Formulate Response
+            response = nstp_v2_pb2.IDSMessage()
+            dec = nstp_v2_pb2.IDSDecision()
+            dec.event_id = read.event.event_id
 
-        #Check for Sec1/Sec2 Advisory/ Spec
-        dec.allow = sanitize(read) and spec(read) and bufferOverflowCheck(read)
-        response.decision.event_id = dec.event_id
-        response.decision.allow = dec.allow
+            #Check for Sec1/Sec2 Advisory/ Spec
+            dec.allow = sanitize(read) and spec(read) and bufferOverflowCheck(read)
+            response.decision.event_id = dec.event_id
+            response.decision.allow = dec.allow
 
-        # Check if at Sec3 --> Terminate connection
-        if not maxConcurrency(read):
-            response = terminate_connection(read)
+            # Check if at Sec3 --> Terminate connection
+            if not maxConcurrency(read):
+                response = terminate_connection(read)
 
-        if "connection_established" in str(read.event):
-            maxSingleIPConnections(read, s)
+            if "connection_established" in str(read.event):
+                maxSingleIPConnections(read, s)
 
-        # Send Message back prefixed with length 
-        sentMsg = response.SerializeToString()
-        print("SENT MSG", sentMsg)
-        sentLen = struct.pack("!H", len(sentMsg))
-        s.send(sentLen + sentMsg)
-        print("IDS RESPONSE: ", response)
+            # Send Message back prefixed with length 
+            sentMsg = response.SerializeToString()
+            print("SENT MSG", sentMsg)
+            sentLen = struct.pack("!H", len(sentMsg))
+            s.send(sentLen + sentMsg)
+            print("IDS RESPONSE: ", response)
+        except socket.timeout:
+            break
+    s.close(0)
+    return 0
 
 main()
