@@ -215,7 +215,7 @@ def main():
             print("IDS RESPONSE: ", response)
         except socket.timeout:
             break
-    s.close(0)
+    s.close()
     return 0
 
 main()
