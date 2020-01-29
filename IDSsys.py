@@ -7,13 +7,18 @@ import struct
 p = sys.argv[0]
 sockFile = sys.argv[1]
 openConnections = {}
+IPtoConnections = {}
+blacklist = {}
 
 # Ensure that it doesn't violate the NSTPv2 specification
 def spec(msg):
     print("TESTING SPEC")
     e = msg.event
     connection = (e.address_family, e.server_address, e.server_port, e.remote_address, e.remote_port)
-    if "client_hello" in str(e):
+    if "connection_established" in str(e) and e.server_address in blacklist.keys():
+        print("Blacklisted and trying to create a connection")
+        return False
+    elif "client_hello" in str(e):
         if msg.event.client_hello.major_version != 2:
             print("Failed: Bad Major")
             return False
@@ -22,23 +27,51 @@ def spec(msg):
             return False
         else:
             openConnections[connection] = 0
+        if e.server_address in IPtoConnections.keys():
+            print("Incrememnting connections")
+            IPtoConnections[e.server_address] += 1
+        else:
+            print("Starting to increment connections")
+            IPtoConnections[e.server_address] = 1
+    elif ("load_request" in str(e) or "store_request" in str(e) or "ping_request" in str(e)) and connection not in openConnections.keys():
+        print("Haven't established a connection")
+        return False
     elif "connection_terminated" in str(e):
         print("Terminated Connection")
-        del oppenConnections[e]
+        del openConnections[e]
+        IPtoConnections[e.server_address] -= 1
+        return True
     return True
+
+def checkPath(path):
+    if "/" not in path.key and ".." not in path.key:
+        return True
+    if path.key[0] == "/" or path.key[0:2] == "..":
+        return False
+    else:
+        pieces = path.key.split("/")
+        print(pieces)
+        stack = []
+        for i in pieces:
+            if ".." not in i:
+                stack.append(i)
+            else:
+                if len(stack) == 0:
+                    return False
+                else:
+                    stack.pop()
+        return len(stack) >= 0
 
 # NSTP-SEC-2020-0001
 def sanitize(msg):
     print("Sanitizing")
     if "load_request" in str(msg.event):
         print("Analyzing Load request")
-        if "/" in msg.event.load_request.key or ".." in msg.event.load_request.key:
-            print("Failed: Load Request contains / or ..")
+        if not checkPath(msg.event.load_request):
             return False
     elif "store_request" in str(msg.event):
         print("Analyzing store request")
-        if "/" in msg.event.store_request.key or ".." in msg.event.store_request.key:
-            print("Failed: Store Request contains / or ..")
+        if not checkPath(msg.event.store_request):
             return False
     return True
 
@@ -52,6 +85,25 @@ def bufferOverflowCheck(msg):
             print("Failed: store request")
             return False
     return True
+
+def maxSingleIPConnections(msg):
+    ip = msg.event.server_address
+    #TODO move this later
+    if ip in IPtoConnections and IPtoConnections[ip] > 50:
+        blacklist[ip] = 0
+        toTerminate = []
+        # TODO send termination for all connections
+        return False
+
+
+#NSTP-SEC-2020-0003
+# TODO track connections from IP addresses - limit to 50 -- blacklist
+def maxConcurrency(msg):
+    # TODO too nieve? should be counting open connections?
+    if len(openConnections) > 500:
+        return False
+    else:
+        return True
 
 def main():
     print(sockFile)
@@ -71,22 +123,59 @@ def main():
         read.ParseFromString(msg)
         print ("MSG: ", read)
 
+
         # TODO: DELETE: TESTING ONLY:
         '''storeReq = nstp_v2_pb2.StoreRequest()
         storeReq.key = "hqrogvwirdboqtqansgipuncxjbmbkftocsikkoyhzktucwpgzocgrgleydnstaggkqixzcnjwqrquwltucllhkrozebxrcwlaftghxdzwqsnqbumcappxnyjljpjeoyoivzbjxmaeyxjnatritowwinusoxtktkdrlypyavwltnijkourjaustmwxmwrvzuhfxvemxoxkrmygbvclltodejlbfiksssfftiwvhagwkyuubvuoxvpzgwbmrkjelkosdzzmrxfrrdmhyooeqjgzicjlxjqdvtxzgbkwjwwppylsclhcmrnyxqzlwocsloedbfeqyaobsityxgeopxgghcrozieopogkbiijykqzgavcgxrrefezmfvgmogsqsqxqfqtaqfqhyhtfixjrlekexhtynztextgdfufkbsggxjubtcoivscjdlnixutcwwkzlxcpdddjzyucpiqgtycppkrgtsfixhunzwnapvlvhmtldmigmatskneouvcauv"
         storeReq.value = b'1010'
-        print(read.event.event)#connection_established)
-        read.event.connection_established = storeReq'''
+        oldMsg = read
+        read = nstp_v2_pb2.IDSMessage()
+        read.event.event_id = oldMsg.event.event_id
+        read.event.timestamp = oldMsg.event.event_id
+        read.event.address_family = oldMsg.event.event_id
+        read.event.server_address = oldMsg.event.server_address
+        read.event.server_port = oldMsg.event.server_port
+        read.event.remote_address = oldMsg.event.remote_address
+        read.event.remote_port = oldMsg.event.remote_port
+
+        # Buffer Overflow
+        #read.event.store_request.key = storeReq.key
+        #read.event.store_request.value = storeReq.value
+
+        #Unsantized Key
+        read.event.store_request.key = "tmp/../file/.."
+        read.event.store_request.value = storeReq.value
+
+        print(read)'''
+        ## DELETE BEFORE HERE
+
 
         # Formulate Response
         response = nstp_v2_pb2.IDSMessage()
         dec = nstp_v2_pb2.IDSDecision()
         dec.event_id = read.event.event_id
-        # TODO new method for keys with '/' and '..' for loadRequest and storeRequest
+        #Check for Sec1/Sec2 Advisory/ Spec
         dec.allow = sanitize(read) and spec(read) and bufferOverflowCheck(read)
 
         response.decision.event_id = dec.event_id
         response.decision.allow = dec.allow
+
+        # Check if at maxConcurrency --> Terminate connection
+        if not maxConcurrency(read):
+            response = nstp_v2_pb2.IDSMessage()
+            terminate = nstp_v2_pb2.IDSTerminateConnection()
+            terminate.address_family = read.event.address_family
+            terminate.server_address = read.event.server_address
+            terminate.server_port = read.event.server_port
+            terminate.remote_address = read.event.remote_address
+            terminate.remote_port = read.event.remote_port
+
+            response.terminate_connection.address_family = terminate.address_family
+            response.terminate_connection.server_address = terminate.server_address
+            response.terminate_connection.server_port = terminate.server_port
+            response.terminate_connection.remote_address = terminate.remote_address
+            response.terminate_connection.remote_port = terminate.remote_port
+            print("TERMINATE CONNECTION: ", response)
 
         # Send Message back prefixed with length 
         sentMsg = response.SerializeToString()
@@ -94,6 +183,5 @@ def main():
         sentLen = struct.pack("!H", len(sentMsg))
         s.send(sentLen + sentMsg)
         print("IDS RESPONSE: ", response)
-        continue
 
 main()
