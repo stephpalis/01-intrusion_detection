@@ -145,6 +145,7 @@ def main():
     print(sockFile)
     s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     s.connect(sockFile)
+    s.settimeout(10)
 
     while True:
         print("READING")
@@ -201,7 +202,7 @@ def main():
             response = terminate_connection(read)
 
         if "connection_established" in str(read.event):
-            maxSingleIPConnections(msg, s)
+            maxSingleIPConnections(read, s)
 
         # Send Message back prefixed with length 
         sentMsg = response.SerializeToString()
