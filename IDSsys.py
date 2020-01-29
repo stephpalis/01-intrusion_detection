@@ -3,12 +3,14 @@ import nstp_v2_pb2
 import sys
 import socket
 import struct
+import copy
 
 p = sys.argv[0]
 sockFile = sys.argv[1]
 openConnections = {}
 IPtoConnections = {}
 blacklist = {}
+
 
 # Ensure that it doesn't violate the NSTPv2 specification
 def spec(msg):
@@ -17,7 +19,7 @@ def spec(msg):
     print("TESTING SPEC")
     e = msg.event
     connection = (e.address_family, e.server_address, e.server_port, e.remote_address, e.remote_port)
-    if "connection_established" in str(e):
+    if e.HasField("connection_established"):
         if e.server_address in blacklist.keys():
             print("Blacklisted and trying to create a connection")
             return False
@@ -33,7 +35,7 @@ def spec(msg):
             print("Starting to increment connections")
             IPtoConnections[e.server_address] = 1
 
-    elif "client_hello" in str(e):
+    elif e.HasField("client_hello"):
         if msg.event.client_hello.major_version != 2:
             print("Failed: Bad Major")
             return False
@@ -46,12 +48,15 @@ def spec(msg):
         else:
             # OpenConnections change to 1 once a client hello has been sent
             openConnections[connection] = 1
-    elif ("load_request" in str(e) or "store_request" in str(e) or "ping_request" in str(e)) and connection not in openConnections.keys():
+    elif (e.HasField("load_request") or e.HasField("store_request") or e.HasField("ping_request")) and (connection not in openConnections.keys() or openConnections[connection] == 0):
         print("Haven't established a connection")
         return False
-    elif "connection_terminated" in str(e):
+    elif e.HasField("connection_terminated"):
+        if connection not in openConnections.keys():
+            print("Haven't established a connection")
+            return False
         print("Terminated Connection")
-        del openConnections[e]
+        del openConnections[connection]
         IPtoConnections[e.server_address] -= 1
         return True
     return True
@@ -78,11 +83,11 @@ def checkPath(path):
 # NSTP-SEC-2020-0001
 def sanitize(msg):
     print("Sanitizing")
-    if "load_request" in str(msg.event):
+    if msg.event.HasField("load_request"):
         print("Analyzing Load request")
         if not checkPath(msg.event.load_request):
             return False
-    elif "store_request" in str(msg.event):
+    elif msg.event.HasField("store_request"):
         print("Analyzing store request")
         if not checkPath(msg.event.store_request):
             return False
@@ -126,7 +131,8 @@ def maxSingleIPConnections(msg, s):
     ip = msg.event.server_address
     if ip in IPtoConnections and IPtoConnections[ip] > 100:
         blacklist[ip] = 0
-        for i in openConnections.keys():
+        conns = copy.deepcopy(openConnections).keys()
+        for i in conns:
             if i[1] == ip:
                 del openConnections[i]
                 terminate_connection_tuple(i, s)
@@ -135,7 +141,7 @@ def maxSingleIPConnections(msg, s):
 def maxConcurrency(msg):
     global openConnections
     # TODO too nieve? should be counting open connections?
-    print("OPEN CONNECTIONS", openConnections)
+    print("OPEN CONNECTIONS", len(openConnections))
     if len(openConnections.keys()) > 500:
         print("TOO MANY OPEN CONNECTIONS")
         return False
@@ -161,33 +167,6 @@ def main():
             read = nstp_v2_pb2.IDSMessage()
             read.ParseFromString(msg)
             print ("MSG: ", read)
-
-
-            # TODO: DELETE: TESTING ONLY:
-            '''storeReq = nstp_v2_pb2.StoreRequest()
-            storeReq.key = "hqrogvwirdboqtqansgipuncxjbmbkftocsikkoyhzktucwpgzocgrgleydnstaggkqixzcnjwqrquwltucllhkrozebxrcwlaftghxdzwqsnqbumcappxnyjljpjeoyoivzbjxmaeyxjnatritowwinusoxtktkdrlypyavwltnijkourjaustmwxmwrvzuhfxvemxoxkrmygbvclltodejlbfiksssfftiwvhagwkyuubvuoxvpzgwbmrkjelkosdzzmrxfrrdmhyooeqjgzicjlxjqdvtxzgbkwjwwppylsclhcmrnyxqzlwocsloedbfeqyaobsityxgeopxgghcrozieopogkbiijykqzgavcgxrrefezmfvgmogsqsqxqfqtaqfqhyhtfixjrlekexhtynztextgdfufkbsggxjubtcoivscjdlnixutcwwkzlxcpdddjzyucpiqgtycppkrgtsfixhunzwnapvlvhmtldmigmatskneouvcauv"
-            storeReq.value = b'1010'
-            oldMsg = read
-            read = nstp_v2_pb2.IDSMessage()
-            read.event.event_id = oldMsg.event.event_id
-            read.event.timestamp = oldMsg.event.event_id
-            read.event.address_family = oldMsg.event.event_id
-            read.event.server_address = oldMsg.event.server_address
-            read.event.server_port = oldMsg.event.server_port
-            read.event.remote_address = oldMsg.event.remote_address
-            read.event.remote_port = oldMsg.event.remote_port
-
-            # Buffer Overflow
-            #read.event.store_request.key = storeReq.key
-            #read.event.store_request.value = storeReq.value
-
-            #Unsantized Key
-            read.event.store_request.key = "tmp/../file/.."
-            read.event.store_request.value = storeReq.value
-
-            print(read)'''
-            ## DELETE BEFORE HERE
-
 
             # Formulate Response
             response = nstp_v2_pb2.IDSMessage()
