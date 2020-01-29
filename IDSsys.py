@@ -17,12 +17,9 @@ def spec(msg):
     print("TESTING SPEC")
     e = msg.event
     connection = (e.address_family, e.server_address, e.server_port, e.remote_address, e.remote_port)
-    if "connection_established" in str(e) and e.server_address in blacklist.keys():
-        print("Blacklisted and trying to create a connection")
-        return False
-    elif "client_hello" in str(e):
-        if msg.event.client_hello.major_version != 2:
-            print("Failed: Bad Major")
+    if "connection_established" in str(e):
+        if e.server_address in blacklist.keys():
+            print("Blacklisted and trying to create a connection")
             return False
         if connection in openConnections.keys():
             print("Failed: Connection already open")
@@ -35,6 +32,20 @@ def spec(msg):
         else:
             print("Starting to increment connections")
             IPtoConnections[e.server_address] = 1
+
+    elif "client_hello" in str(e):
+        if msg.event.client_hello.major_version != 2:
+            print("Failed: Bad Major")
+            return False
+        if connection not in openConnections.keys():
+            print("Failed: hasn't established a connection")
+            return False
+        elif connection in openConnections.keys() and openConnections[connection] == 1:
+            print("Failed: Connection already open")
+            return False
+        else:
+            # OpenConnections change to 1 once a client hello has been sent
+            openConnections[connection] = 1
     elif ("load_request" in str(e) or "store_request" in str(e) or "ping_request" in str(e)) and connection not in openConnections.keys():
         print("Haven't established a connection")
         return False
@@ -191,8 +202,9 @@ def main():
             # Check if at Sec3 --> Terminate connection
             if not maxConcurrency(read):
                 response.decision.allow = False
-
-            if "client_hello" in str(read.event):
+            
+            # TODO does this mean conn_established or client_hello?
+            if "connection_established" in str(read.event):
                 maxSingleIPConnections(read, s)
 
             # Send Message back prefixed with length 
