@@ -106,7 +106,6 @@ def bufferOverflowCheck(msg):
             return False
     return True
 
-# TODO TEST FROM HERE ON
 def terminate_connection_tuple(pairs, s):
     response = nstp_v2_pb2.IDSMessage()
     terminate = nstp_v2_pb2.IDSTerminateConnection()
@@ -125,7 +124,8 @@ def terminate_connection_tuple(pairs, s):
     print("RESPONSE FOR TERMINATE ", response)
     sentMsg = response.SerializeToString()
     sentLen = struct.pack("!H", len(sentMsg))
-    s.send(sentLen + sentMsg)
+    s.sendall(sentLen + sentMsg)
+    print(len(openConnections))
 
 def removeConnections(ip, s):
     conns = copy.deepcopy(openConnections).keys()
@@ -133,7 +133,6 @@ def removeConnections(ip, s):
         if i[3] == ip:
             del openConnections[i]
             terminate_connection_tuple(i, s)
-
 
 def maxSingleIPConnections(msg, s):
     global openConnections
@@ -152,7 +151,6 @@ def maxSingleIPConnections(msg, s):
 #NSTP-SEC-2020-0003
 def maxConcurrency(msg, s):
     global openConnections
-    # TODO too nieve? should be counting open connections?
     print("OPEN CONNECTIONS", len(openConnections))
     if len(openConnections.keys()) > 500:
         print("TOO MANY OPEN CONNECTIONS")
@@ -196,12 +194,7 @@ def main():
                 continue
                 #response.decision.allow = False
             
-            # TODO does this mean conn_established or client_hello?
-            '''if read.event.HasField("connection_established"):
-                if maxSingleIPConnections(read, s):
-                    continue'''
-
-            #TODO blacklist client if False
+            # Blacklist client if False
             if response.decision.allow == False:
                 ip = read.event.remote_address
                 blacklist[ip] = 0
