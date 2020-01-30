@@ -19,21 +19,23 @@ def spec(msg):
     print("TESTING SPEC")
     e = msg.event
     connection = (e.address_family, e.server_address, e.server_port, e.remote_address, e.remote_port)
+    #TODO test blacklist
+    if e.remote_address in blacklist.keys():
+        print("Blacklisted and trying to create a connection")
+        return False
+
     if e.HasField("connection_established"):
-        if e.server_address in blacklist.keys():
-            print("Blacklisted and trying to create a connection")
-            return False
         if connection in openConnections.keys():
             print("Failed: Connection already open")
             return False
         else:
             openConnections[connection] = 0
-        if e.server_address in IPtoConnections.keys():
+        if e.remote_address in IPtoConnections.keys():
             print("Incrememnting connections")
-            IPtoConnections[e.server_address] += 1
+            IPtoConnections[e.remote_address] += 1
         else:
             print("Starting to increment connections")
-            IPtoConnections[e.server_address] = 1
+            IPtoConnections[e.remote_address] = 1
 
     elif e.HasField("client_hello"):
         if msg.event.client_hello.major_version != 2:
@@ -57,7 +59,7 @@ def spec(msg):
             return False
         print("Terminated Connection")
         del openConnections[connection]
-        IPtoConnections[e.server_address] -= 1
+        IPtoConnections[e.remote_address] -= 1
         return True
     return True
 
@@ -104,6 +106,7 @@ def bufferOverflowCheck(msg):
             return False
     return True
 
+# TODO TEST FROM HERE ON
 def terminate_connection_tuple(pairs, s):
     response = nstp_v2_pb2.IDSMessage()
     terminate = nstp_v2_pb2.IDSTerminateConnection()
@@ -119,31 +122,41 @@ def terminate_connection_tuple(pairs, s):
     response.terminate_connection.remote_address = terminate.remote_address
     response.terminate_connection.remote_port = terminate.remote_port
 
+    print("RESPONSE FOR TERMINATE ", response)
     sentMsg = response.SerializeToString()
-    print("SENT MSG", sentMsg)
     sentLen = struct.pack("!H", len(sentMsg))
     s.send(sentLen + sentMsg)
+
+def removeConnections(ip, s):
+    conns = copy.deepcopy(openConnections).keys()
+    for i in conns:
+        if i[3] == ip:
+            del openConnections[i]
+            terminate_connection_tuple(i, s)
 
 
 def maxSingleIPConnections(msg, s):
     global openConnections
     global IPtoConnections
-    ip = msg.event.server_address
-    if ip in IPtoConnections and IPtoConnections[ip] > 100:
-        blacklist[ip] = 0
-        conns = copy.deepcopy(openConnections).keys()
-        for i in conns:
-            if i[1] == ip:
-                del openConnections[i]
-                terminate_connection_tuple(i, s)
+    #ip = msg.event.remote_address
+    highestConn = 0
+    highestIP = None
+    '''if ip in IPtoConnections and IPtoConnections[ip] > 500:'''
+    for i in IPtoConnections.keys():
+        if IPtoConnections[i] > highestConn:
+            highestConn = IPtoConnections[i]
+            highestIP = i
+    blacklist[highestIP] = 0
+    removeConnections(highestIP, s)
 
 #NSTP-SEC-2020-0003
-def maxConcurrency(msg):
+def maxConcurrency(msg, s):
     global openConnections
     # TODO too nieve? should be counting open connections?
     print("OPEN CONNECTIONS", len(openConnections))
     if len(openConnections.keys()) > 500:
         print("TOO MANY OPEN CONNECTIONS")
+        maxSingleIPConnections(msg, s)
         return False
     else:
         return True
@@ -179,12 +192,21 @@ def main():
             response.decision.allow = dec.allow
 
             # Check if at Sec3 --> Terminate connection
-            if not maxConcurrency(read):
-                response.decision.allow = False
+            if not maxConcurrency(read, s):
+                continue
+                #response.decision.allow = False
             
             # TODO does this mean conn_established or client_hello?
-            if "connection_established" in str(read.event):
-                maxSingleIPConnections(read, s)
+            '''if read.event.HasField("connection_established"):
+                if maxSingleIPConnections(read, s):
+                    continue'''
+
+            #TODO blacklist client if False
+            if response.decision.allow == False:
+                ip = read.event.remote_address
+                blacklist[ip] = 0
+                removeConnections(ip, s)
+                continue
 
             # Send Message back prefixed with length 
             sentMsg = response.SerializeToString()
