@@ -186,9 +186,7 @@ def main():
             response.decision.allow = dec.allow
 
             # Check if at Sec3 --> Terminate connection
-            if not maxConcurrency(read, s):
-                continue
-                #response.decision.allow = False
+            maxConcurrency(read, s)
             
             # Blacklist client if False
             if response.decision.allow == False:
