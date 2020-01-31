@@ -16,10 +16,8 @@ blacklist = {}
 def spec(msg):
     global openConnections
     global IPtoConnections
-    print("TESTING SPEC")
     e = msg.event
     connection = (e.address_family, e.server_address, e.server_port, e.remote_address, e.remote_port)
-    #TODO test blacklist
     if e.remote_address in blacklist.keys():
         print("Blacklisted and trying to create a connection")
         return False
@@ -128,11 +126,15 @@ def terminate_connection_tuple(pairs, s):
     print(len(openConnections))
 
 def removeConnections(ip, s):
+    val = False
     conns = copy.deepcopy(openConnections).keys()
     for i in conns:
         if i[3] == ip:
+            print("Removing connection")
             del openConnections[i]
             terminate_connection_tuple(i, s)
+            val = True
+    return val
 
 def maxSingleIPConnections(msg, s):
     global openConnections
@@ -198,8 +200,8 @@ def main():
             if response.decision.allow == False:
                 ip = read.event.remote_address
                 blacklist[ip] = 0
-                removeConnections(ip, s)
-                continue
+                if removeConnections(ip, s):
+                    continue
 
             # Send Message back prefixed with length 
             sentMsg = response.SerializeToString()
