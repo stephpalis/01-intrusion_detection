@@ -98,7 +98,6 @@ def bufferOverflowCheck(msg):
     print("Checking buffer overflow")
     storeReq = msg.event.store_request
     if storeReq != 0:
-        print("Checking store request")
         if len(storeReq.key) > 512:
             print("Failed: store request")
             return False
@@ -123,7 +122,6 @@ def terminate_connection_tuple(pairs, s):
     sentMsg = response.SerializeToString()
     sentLen = struct.pack("!H", len(sentMsg))
     s.sendall(sentLen + sentMsg)
-    print(len(openConnections))
 
 def removeConnections(ip, s):
     val = False
@@ -139,10 +137,8 @@ def removeConnections(ip, s):
 def maxSingleIPConnections(msg, s):
     global openConnections
     global IPtoConnections
-    #ip = msg.event.remote_address
     highestConn = 0
     highestIP = None
-    '''if ip in IPtoConnections and IPtoConnections[ip] > 500:'''
     for i in IPtoConnections.keys():
         if IPtoConnections[i] > highestConn:
             highestConn = IPtoConnections[i]
@@ -162,14 +158,12 @@ def maxConcurrency(msg, s):
         return True
 
 def main():
-    print(sockFile)
     s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     s.connect(sockFile)
     s.settimeout(10)
 
     while True:
         try:
-            print("READING")
             # Recieve Message
             msg = s.recv(2048)
             if len(msg) == 0:
@@ -205,9 +199,8 @@ def main():
 
             # Send Message back prefixed with length 
             sentMsg = response.SerializeToString()
-            print("SENT MSG", sentMsg)
             sentLen = struct.pack("!H", len(sentMsg))
-            s.send(sentLen + sentMsg)
+            s.sendall(sentLen + sentMsg)
             print("IDS RESPONSE: ", response)
         except socket.timeout:
             break
