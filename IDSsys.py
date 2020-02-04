@@ -157,6 +157,16 @@ def maxConcurrency(msg, s):
     else:
         return True
 
+def recv_all(s,n):
+    xs = b""
+    while len(xs) < n:
+        x = s.recv(n-len(xs))
+        if len(x) == 0:
+            break
+        xs += x
+    return xs
+
+
 def main():
     s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     s.connect(sockFile)
@@ -165,12 +175,16 @@ def main():
     while True:
         try:
             # Recieve Message
-            msg = s.recv(2048)
-            if len(msg) == 0:
+            #msg = s.recv(2048)
+            lengthInBytes = recv_all(s, 2)
+            if len(lengthInBytes) == 0:
                 s.close()
                 return 0
-            length = struct.unpack("!H", msg[0:2])[0]
-            msg = msg[2:]
+            #length = struct.unpack("!H", msg[0:2])[0]
+            length = struct.unpack("!H", lengthInBytes)[0]
+            print(length)
+            #msg = msg[2:]
+            msg = recv_all(s, length)
             read = nstp_v2_pb2.IDSMessage()
             read.ParseFromString(msg)
             print ("MSG: ", read)
