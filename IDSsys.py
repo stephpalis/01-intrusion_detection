@@ -16,6 +16,7 @@ blacklist = {}
 def spec(msg):
     global openConnections
     global IPtoConnections
+    global blacklist
     e = msg.event
     connection = (e.address_family, e.server_address, e.server_port, e.remote_address, e.remote_port)
     if e.remote_address in blacklist.keys():
@@ -137,6 +138,7 @@ def removeConnections(ip, s):
 def maxSingleIPConnections(msg, s):
     global openConnections
     global IPtoConnections
+    global blacklist
     highestConn = 0
     highestIP = None
     for i in IPtoConnections.keys():
@@ -149,10 +151,13 @@ def maxSingleIPConnections(msg, s):
 #NSTP-SEC-2020-0003
 def maxConcurrency(msg, s):
     global openConnections
+    global blacklist
     print("OPEN CONNECTIONS", len(openConnections))
     if len(openConnections.keys()) > 500:
         print("TOO MANY OPEN CONNECTIONS")
         maxSingleIPConnections(msg, s)
+
+    if msg.event.remote_address in blacklist.keys():
         return False
     else:
         return True
@@ -200,13 +205,16 @@ def main():
             response.decision.allow = dec.allow
 
             # Check if at Sec3 --> Terminate connection
-            maxConcurrency(read, s)
+            skip = False
+            if not maxConcurrency(read, s):
+                response.decision.allow = False
+                skip = True
             
             # Blacklist client if False
             if response.decision.allow == False:
                 ip = read.event.remote_address
                 blacklist[ip] = 0
-                if removeConnections(ip, s):
+                if removeConnections(ip, s) or skip:
                     continue
 
             # Send Message back prefixed with length 
